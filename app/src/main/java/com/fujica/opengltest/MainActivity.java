@@ -7,22 +7,48 @@ import android.content.Context;
 import android.content.pm.ConfigurationInfo;
 import android.opengl.GLSurfaceView;
 import android.os.Bundle;
+import android.util.Log;
 import android.widget.Toast;
 
+import com.fujica.opengltest.objects.Mallet;
+import com.fujica.opengltest.objects.Table;
+import com.fujica.opengltest.programs.ColorShaderProgram;
+import com.fujica.opengltest.programs.TextureShaderProgram;
+import com.fujica.opengltest.utils.LoggerConfig;
 import com.fujica.opengltest.utils.ShaderHelper;
 import com.fujica.opengltest.utils.TextResourceReader;
+import com.fujica.opengltest.utils.TextureHelper;
+import com.fujica.opengltest.utils.tests.CPUComandReSort;
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.FloatBuffer;
+import java.nio.channels.ShutdownChannelGroupException;
 
 import javax.microedition.khronos.egl.EGLConfig;
 import javax.microedition.khronos.opengles.GL10;
 
-import static android.opengl.GLES10.glClearColor;
+import static android.opengl.GLES20.GL_FLOAT;
+import static android.opengl.GLES20.GL_LINES;
+import static android.opengl.GLES20.GL_POINTS;
+import static android.opengl.GLES20.GL_TRIANGLE_FAN;
+import static android.opengl.GLES20.glClearColor;
 import static android.opengl.GLES20.GL_COLOR_BUFFER_BIT;
 import static android.opengl.GLES20.glClear;
+import static android.opengl.GLES20.glDrawArrays;
+import static android.opengl.GLES20.glEnableVertexAttribArray;
+import static android.opengl.GLES20.glGetAttribLocation;
+import static android.opengl.GLES20.glGetUniformLocation;
+import static android.opengl.GLES20.glUniformMatrix4fv;
+import static android.opengl.GLES20.glUseProgram;
+import static android.opengl.GLES20.glVertexAttribPointer;
 import static android.opengl.GLES20.glViewport;
+import static android.opengl.Matrix.multiplyMM;
+import static android.opengl.Matrix.perspectiveM;
+import static android.opengl.Matrix.rotateM;
+import static android.opengl.Matrix.setIdentityM;
+import static android.opengl.Matrix.translateM;
+import static com.fujica.opengltest.utils.Constants.BYTES_PER_FLOAT;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -69,57 +95,66 @@ public class MainActivity extends AppCompatActivity {
 
     static class MyRender implements GLSurfaceView.Renderer {
 
-        private static final int POSITION_COMPONENT_COUNT = 2;
-
-        private static final int BYTES_PER_FLOAT = 4;
-        private final FloatBuffer vertexData;
         private final Context context;
+
+        private final float[] projectionMatrix = new float[16];
+        private final float[] modelMatrix = new float[16];
+
+        private Table table;
+        private Mallet mallet;
+
+        private TextureShaderProgram textureProgram;
+        private ColorShaderProgram colorProgram;
+
+        private int texture;
 
         public MyRender(Context mContext){
             context = mContext;
-
-            // 逆时针定义，卷曲顺序。使用一致的卷曲顺序，可优化性能。
-            float[] tableVerticesWithTriangles = {
-                0f, 0f,
-                9f, 14f,
-                0f, 14f,
-
-                0f, 0f,
-                9f, 0f,
-                9f, 14f,
-
-                0f, 7f,
-                9f, 7f,
-
-                4.5f, 2f,
-                4.5f, 12f,
-            };
-
-            vertexData = ByteBuffer.allocate(tableVerticesWithTriangles.length * BYTES_PER_FLOAT)
-                    .order(ByteOrder.nativeOrder())
-                    .asFloatBuffer();
-            vertexData.put(tableVerticesWithTriangles);
         }
 
         @Override
         public void onSurfaceCreated(GL10 gl10, EGLConfig eglConfig) {
-            glClearColor(1.0f, 1.0f, 0.0f, 0.0f);
-            String vertexShaderSource = TextResourceReader.readTextFileFromResource(context, R.raw.simple_vertex_shader);
-            String fragmentShaderSource = TextResourceReader.readTextFileFromResource(context, R.raw.simple_fragment_shader);
-            int vertexShader = ShaderHelper.compileVertexShader(vertexShaderSource);
-            int fragmentShader = ShaderHelper.compileVertexShader(fragmentShaderSource);
+            glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
 
+            table = new Table();
+            mallet = new Mallet();
 
+            textureProgram = new TextureShaderProgram(this.context);
+            colorProgram = new ColorShaderProgram(this.context);
+
+            texture = TextureHelper.loadTexture(this.context, R.drawable.air_hockey_surface);
         }
 
         @Override
-        public void onSurfaceChanged(GL10 gl10, int i, int i1) {
-            glViewport(0, 0, i, i1);
+        public void onSurfaceChanged(GL10 gl10, int width, int height) {
+            Log.e("TAG", "width: " + width + " height:" + height);
+            glViewport(0, 0, width, height);
+            perspectiveM(projectionMatrix, 0,45, (float) width / (float) height, 1f, 10f);
+            setIdentityM(modelMatrix, 0);
+            translateM(modelMatrix, 0, 0f, 0f, -3.5f);
+            rotateM(modelMatrix, 0, -60f, 1f, 0f, 0f);
+            final float[] temp = new float[16];
+            multiplyMM(temp, 0, projectionMatrix, 0, modelMatrix, 0);
+            System.arraycopy(temp, 0, projectionMatrix, 0, temp.length);
         }
 
+        /**
+         * 60 fps
+         * @param gl10 unused
+         */
         @Override
         public void onDrawFrame(GL10 gl10) {
             glClear(GL_COLOR_BUFFER_BIT);
+
+            textureProgram.useProgram();
+            textureProgram.setUniforms(projectionMatrix, texture);
+            table.bindData(textureProgram);
+            table.draw();
+
+            colorProgram.useProgram();
+            colorProgram.setUniforms(projectionMatrix);
+            mallet.bindData(colorProgram);
+            mallet.draw();
         }
     }
 }
